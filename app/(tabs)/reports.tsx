@@ -1,4 +1,10 @@
-import { View, Text, ScrollView, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+} from "react-native";
 import { useEffect, useState } from "react";
 import { api } from "@/services/api";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,79 +13,100 @@ const COLORS = {
   cream: "#F7EEDC",
   card: "#FFF9EE",
   brown: "#5A3825",
+  lightBrown: "#A9745B",
   gold: "#B8894A",
   dark: "#2B1A12",
+  white: "#FFFFFF",
 };
 
-export default function Dashboard() {
-  const [dashboard, setDashboard] = useState<any>(null);
+export default function Reports() {
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadReport = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get("/dashboard");
+      setReport(res.data);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    api.get("/dashboard").then((res) => setDashboard(res.data));
+    loadReport();
   }, []);
 
   return (
-    <ScrollView style={styles.screen}>
+    <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <Text style={styles.brand}>Antigua’s</Text>
-        <Text style={styles.subtitle}>Bake & Cuisine POS</Text>
+        <Text style={styles.brand}>Reports</Text>
+        <Text style={styles.subtitle}>Today’s business summary</Text>
       </View>
 
-      <Text style={styles.title}>Today’s Summary</Text>
+      <TouchableOpacity onPress={loadReport} style={styles.refreshButton}>
+        <Ionicons name="refresh-outline" size={18} color={COLORS.white} />
+        <Text style={styles.refreshText}>
+          {loading ? "Loading..." : "Refresh"}
+        </Text>
+      </TouchableOpacity>
 
       <View style={styles.grid}>
-        <Card
+        <ReportCard
           icon="cash-outline"
-          label="Sales Today"
-          value={`₱${dashboard?.todaySales || 0}.00`}
+          label="Today Sales"
+          value={`₱${report?.todaySales || 0}.00`}
         />
-        <Card
+        <ReportCard
           icon="receipt-outline"
           label="Orders Today"
-          value={dashboard?.todayOrders || 0}
+          value={report?.todayOrders || 0}
         />
       </View>
 
       <View style={styles.grid}>
-        <Card
+        <ReportCard
           icon="fast-food-outline"
           label="Products"
-          value={dashboard?.totalProducts || 0}
+          value={report?.totalProducts || 0}
         />
-        <Card
+        <ReportCard
           icon="people-outline"
           label="Customers"
-          value={dashboard?.totalCustomers || 0}
+          value={report?.totalCustomers || 0}
         />
       </View>
 
-      <View style={styles.wideCard}>
+      <View style={styles.card}>
         <Text style={styles.cardTitle}>Best Seller</Text>
         <Text style={styles.bestSeller}>
-          {dashboard?.bestSeller || "No sales yet"}
+          {report?.bestSeller || "No sales yet"}
         </Text>
       </View>
 
-      <View style={styles.wideCard}>
+      <View style={styles.card}>
         <Text style={styles.cardTitle}>Product Breakdown</Text>
 
-        {dashboard?.productsSold &&
-          Object.entries(dashboard.productsSold).map(([name, qty]: any) => (
+        {report?.productsSold && Object.keys(report.productsSold).length > 0 ? (
+          Object.entries(report.productsSold).map(([name, qty]: any) => (
             <View key={name} style={styles.productRow}>
               <Text style={styles.productName}>{name}</Text>
               <Text style={styles.productQty}>{qty}</Text>
             </View>
-          ))}
+          ))
+        ) : (
+          <Text style={styles.empty}>No product sales yet today.</Text>
+        )}
       </View>
 
-      <View style={{ height: 110 }} />
+      <View style={{ height: 120 }} />
     </ScrollView>
   );
 }
 
-function Card({ icon, label, value }: any) {
+function ReportCard({ icon, label, value }: any) {
   return (
-    <View style={styles.card}>
+    <View style={styles.smallCard}>
       <Ionicons name={icon} size={28} color={COLORS.gold} />
       <Text style={styles.label}>{label}</Text>
       <Text style={styles.value}>{value}</Text>
@@ -98,29 +125,37 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.dark,
     padding: 22,
     borderRadius: 26,
+    marginBottom: 16,
   },
   brand: {
     fontSize: 32,
     fontWeight: "900",
-    color: "#fff",
+    color: COLORS.white,
   },
   subtitle: {
     color: "#D7C2A7",
     marginTop: 4,
+    fontWeight: "700",
   },
-  title: {
-    fontSize: 28,
+  refreshButton: {
+    backgroundColor: COLORS.brown,
+    padding: 14,
+    borderRadius: 18,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 14,
+  },
+  refreshText: {
+    color: COLORS.white,
     fontWeight: "900",
-    color: COLORS.brown,
-    marginTop: 24,
-    marginBottom: 16,
   },
   grid: {
     flexDirection: "row",
     gap: 12,
     marginBottom: 12,
   },
-  card: {
+  smallCard: {
     flex: 1,
     backgroundColor: COLORS.card,
     padding: 18,
@@ -131,7 +166,7 @@ const styles = StyleSheet.create({
   label: {
     marginTop: 12,
     color: "#8A7B6A",
-    fontWeight: "700",
+    fontWeight: "800",
   },
   value: {
     marginTop: 8,
@@ -139,7 +174,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: COLORS.dark,
   },
-  wideCard: {
+  card: {
     backgroundColor: COLORS.card,
     padding: 18,
     borderRadius: 22,
@@ -169,9 +204,14 @@ const styles = StyleSheet.create({
   productName: {
     fontWeight: "800",
     color: COLORS.dark,
+    flex: 1,
   },
   productQty: {
     fontWeight: "900",
     color: COLORS.gold,
+  },
+  empty: {
+    color: COLORS.lightBrown,
+    fontWeight: "800",
   },
 });
