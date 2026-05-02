@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { useEffect, useMemo, useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -43,8 +44,10 @@ export default function OrderScreen() {
 
   const [platform, setPlatform] = useState("Messenger");
 
-  const [deliveryDate, setDeliveryDate] = useState<Date | null>(null);
-  const [deliveryTime, setDeliveryTime] = useState<Date | null>(null);
+  const now = new Date();
+
+  const [deliveryDate, setDeliveryDate] = useState<Date>(now);
+  const [deliveryTime, setDeliveryTime] = useState<Date>(now);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
@@ -164,6 +167,12 @@ export default function OrderScreen() {
     0,
   );
 
+  const resetCustomerModal = () => {
+    setNewCustomerName("");
+    setNewCustomerPhone("");
+    setNewCustomerAddress("");
+  };
+
   const saveCustomer = async () => {
     if (!newCustomerName.trim()) {
       Alert.alert("Required", "Customer name is required.");
@@ -172,9 +181,9 @@ export default function OrderScreen() {
 
     try {
       const res = await api.post("/customers", {
-        name: newCustomerName,
-        contact: newCustomerPhone,
-        address: newCustomerAddress,
+        name: newCustomerName.trim(),
+        contact: newCustomerPhone.trim(),
+        address: newCustomerAddress.trim(),
         platform,
       });
 
@@ -182,10 +191,9 @@ export default function OrderScreen() {
       setCustomerSearch(res.data.name);
       setCustomers([]);
 
-      setNewCustomerName("");
-      setNewCustomerPhone("");
-      setNewCustomerAddress("");
+      resetCustomerModal();
       setCustomerModalOpen(false);
+      Keyboard.dismiss();
     } catch {
       Alert.alert("Error", "Failed to save customer.");
     }
@@ -225,14 +233,18 @@ export default function OrderScreen() {
         items: Object.values(items),
       });
 
+      await api.get("/orders");
+
       Alert.alert("Invoice Created", res.data.invoiceNo);
+
+      const today = new Date();
 
       setItems({});
       setSelectedCustomer(null);
       setCustomerSearch("");
       setCustomers([]);
-      setDeliveryDate(null);
-      setDeliveryTime(null);
+      setDeliveryDate(today);
+      setDeliveryTime(today);
     } catch {
       Alert.alert("Error", "Failed to create invoice.");
     }
@@ -260,6 +272,7 @@ export default function OrderScreen() {
               setSelectedCustomer(null);
             }}
             style={styles.input}
+            returnKeyType="search"
           />
 
           {customerLoading && (
@@ -365,9 +378,7 @@ export default function OrderScreen() {
             style={styles.pickerButton}
           >
             <Ionicons name="calendar-outline" size={20} color={COLORS.brown} />
-            <Text style={styles.pickerText}>
-              {deliveryDate ? formatDate(deliveryDate) : "Select delivery date"}
-            </Text>
+            <Text style={styles.pickerText}>{formatDate(deliveryDate)}</Text>
           </TouchableOpacity>
 
           <Text style={styles.smallLabel}>Preferred Delivery Time</Text>
@@ -377,9 +388,7 @@ export default function OrderScreen() {
             style={styles.pickerButton}
           >
             <Ionicons name="time-outline" size={20} color={COLORS.brown} />
-            <Text style={styles.pickerText}>
-              {deliveryTime ? formatTime(deliveryTime) : "Select delivery time"}
-            </Text>
+            <Text style={styles.pickerText}>{formatTime(deliveryTime)}</Text>
           </TouchableOpacity>
         </View>
 
@@ -391,6 +400,7 @@ export default function OrderScreen() {
           value={productSearch}
           onChangeText={setProductSearch}
           style={styles.input}
+          returnKeyType="search"
         />
 
         {loading ? (
@@ -427,6 +437,7 @@ export default function OrderScreen() {
                           value={String(items[key].price)}
                           onChangeText={(value) => updatePrice(key, value)}
                           style={styles.priceInput}
+                          returnKeyType="done"
                         />
                       )}
                     </View>
@@ -459,7 +470,7 @@ export default function OrderScreen() {
           ))
         )}
 
-        <View style={{ height: 180 }} />
+        <View style={{ height: 190 }} />
       </ScrollView>
 
       <Modal visible={showDatePicker} transparent animationType="slide">
@@ -467,15 +478,17 @@ export default function OrderScreen() {
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Select Delivery Date</Text>
 
-            <DateTimePicker
-              value={deliveryDate || new Date()}
-              mode="date"
-              display="spinner"
-              onChange={(event, selectedDate) => {
-                if (selectedDate) setDeliveryDate(selectedDate);
-              }}
-            />
-
+            <View style={styles.pickerWrapper}>
+              <DateTimePicker
+                value={deliveryDate || new Date()}
+                mode="date"
+                display="spinner"
+                style={styles.picker}
+                onChange={(event, selectedDate) => {
+                  if (selectedDate) setDeliveryDate(selectedDate);
+                }}
+              />
+            </View>
             <TouchableOpacity
               onPress={() => setShowDatePicker(false)}
               style={styles.saveCustomerButton}
@@ -490,16 +503,17 @@ export default function OrderScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Select Delivery Time</Text>
-
-            <DateTimePicker
-              value={deliveryTime || new Date()}
-              mode="time"
-              display="spinner"
-              onChange={(event, selectedTime) => {
-                if (selectedTime) setDeliveryTime(selectedTime);
-              }}
-            />
-
+            <View style={styles.pickerWrapper}>
+              <DateTimePicker
+                value={deliveryTime || new Date()}
+                mode="time"
+                display="spinner"
+                style={styles.picker}
+                onChange={(event, selectedTime) => {
+                  if (selectedTime) setDeliveryTime(selectedTime);
+                }}
+              />
+            </View>
             <TouchableOpacity
               onPress={() => setShowTimePicker(false)}
               style={styles.saveCustomerButton}
@@ -514,52 +528,63 @@ export default function OrderScreen() {
         <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 20 : 0}
         >
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            activeOpacity={1}
-            onPress={Keyboard.dismiss}
-          >
-            <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Create Customer</Text>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.keyboardSafeArea}>
+              <View style={styles.modalBox}>
+                <Text style={styles.modalTitle}>Create Customer</Text>
 
-              <TextInput
-                placeholder="Customer name"
-                value={newCustomerName}
-                onChangeText={setNewCustomerName}
-                style={styles.input}
-              />
+                <TextInput
+                  placeholder="Customer name"
+                  placeholderTextColor="#9B8B7A"
+                  value={newCustomerName}
+                  onChangeText={setNewCustomerName}
+                  style={styles.input}
+                  returnKeyType="next"
+                />
 
-              <TextInput
-                placeholder="Contact number"
-                value={newCustomerPhone}
-                onChangeText={setNewCustomerPhone}
-                style={styles.input}
-              />
+                <TextInput
+                  placeholder="Contact number optional"
+                  placeholderTextColor="#9B8B7A"
+                  value={newCustomerPhone}
+                  onChangeText={setNewCustomerPhone}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                  returnKeyType="next"
+                />
 
-              <TextInput
-                placeholder="Address"
-                value={newCustomerAddress}
-                onChangeText={setNewCustomerAddress}
-                style={[styles.input, { height: 100 }]}
-                multiline
-              />
+                <TextInput
+                  placeholder="Address optional"
+                  placeholderTextColor="#9B8B7A"
+                  value={newCustomerAddress}
+                  onChangeText={setNewCustomerAddress}
+                  style={[styles.input, styles.addressInput]}
+                  multiline
+                  textAlignVertical="top"
+                  returnKeyType="done"
+                />
 
-              <TouchableOpacity
-                onPress={saveCustomer}
-                style={styles.saveButton}
-              >
-                <Text style={styles.saveText}>Save Customer</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={saveCustomer}
+                  style={styles.saveCustomerButton}
+                >
+                  <Text style={styles.saveCustomerText}>Save Customer</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => setCustomerModalOpen(false)}
-                style={styles.cancelButton}
-              >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    resetCustomerModal();
+                    setCustomerModalOpen(false);
+                    Keyboard.dismiss();
+                  }}
+                  style={styles.cancelButton}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
+          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -627,6 +652,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: COLORS.dark,
     fontWeight: "800",
+  },
+  addressInput: {
+    height: 110,
+    paddingTop: 14,
   },
   helperText: {
     color: COLORS.lightBrown,
@@ -824,17 +853,31 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "flex-end",
   },
+  keyboardSafeArea: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   modalBox: {
     backgroundColor: COLORS.cream,
     padding: 20,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+    width: "100%",
+    alignSelf: "stretch",
   },
   modalTitle: {
     fontSize: 24,
     fontWeight: "900",
     color: COLORS.brown,
     marginBottom: 16,
+  },
+  pickerWrapper: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  picker: {
+    width: "100%",
   },
   saveCustomerButton: {
     backgroundColor: COLORS.dark,

@@ -5,14 +5,16 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  RefreshControl,
 } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/services/api";
 import { Order } from "@/types";
 import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 
 const COLORS = {
   cream: "#F7EEDC",
@@ -38,9 +40,11 @@ export default function Invoices() {
     }
   };
 
-  useEffect(() => {
-    loadOrders();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadOrders();
+    }, []),
+  );
 
   const saveInvoiceImage = async () => {
     try {
@@ -93,6 +97,9 @@ export default function Invoices() {
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.invoiceList}
+        refreshControl={
+          <RefreshControl refreshing={false} onRefresh={loadOrders} />
+        }
       >
         {orders.map((order) => (
           <TouchableOpacity
@@ -118,13 +125,18 @@ export default function Invoices() {
                 selectedOrder?.id === order.id && styles.invoiceNoActive,
               ]}
             >
-              ₱{order.total}.00
+              ₱{order.total}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={false} onRefresh={loadOrders} />
+        }
+      >
         {selectedOrder ? (
           <>
             <ViewShot
@@ -136,13 +148,17 @@ export default function Invoices() {
             >
               <View style={styles.invoiceImage}>
                 <Text style={styles.invoiceHeader}>
-                  {(selectedOrder.customer?.name ||
-                    selectedOrder.customerName ||
-                    "Walk-in") +
-                    "/" +
-                    (selectedOrder.platform || "Messenger") +
-                    "/" +
-                    formatInvoiceDate(selectedOrder.createdAt)}
+                  {
+                    (selectedOrder.customer?.name?.toUpperCase() ||
+                      selectedOrder.customerName?.toUpperCase() ||
+                      "WALK-IN") +
+                      " / " +
+                      (selectedOrder.platform?.toUpperCase() || "MESSENGER")
+                    //+
+                    //"/"
+                    //+
+                    //formatInvoiceDate(selectedOrder.createdAt)
+                  }
                 </Text>
 
                 {selectedOrder.deliveryAt && (
@@ -155,8 +171,8 @@ export default function Invoices() {
                   selectedOrder.customerAddress) && (
                   <Text style={styles.addressText}>
                     Address:{" "}
-                    {selectedOrder.customer?.address ||
-                      selectedOrder.customerAddress}
+                    {selectedOrder.customer?.address?.toUpperCase() ||
+                      selectedOrder.customerAddress?.toUpperCase()}
                   </Text>
                 )}
 
@@ -166,7 +182,7 @@ export default function Invoices() {
                   </Text>
                   <Text style={[styles.cellHeader, styles.qtyCol]}>Qty.</Text>
                   <Text style={[styles.cellHeader, styles.priceCol]}>
-                    Retail Price
+                    Price
                   </Text>
                   <Text style={[styles.cellHeader, styles.totalCol]}>
                     Total
@@ -176,7 +192,8 @@ export default function Invoices() {
                 {selectedOrder.items.map((item: any) => (
                   <View key={item.id} style={styles.dataRow}>
                     <Text style={[styles.cellTextLeft, styles.descriptionCol]}>
-                      {item.product?.name || item.productName}
+                      {item.product?.name?.toUpperCase() ||
+                        item.productName?.toUpperCase()}
                     </Text>
 
                     <Text style={[styles.cellText, styles.qtyCol]}>
@@ -251,8 +268,8 @@ export default function Invoices() {
 
 function formatMoney(value: number) {
   return Number(value || 0).toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
 }
 
