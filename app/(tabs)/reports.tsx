@@ -5,7 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useState, useCallback } from "react";
+import { useFocusEffect } from "expo-router";
 import { api } from "@/services/api";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -26,77 +27,108 @@ export default function Reports() {
   const loadReport = async () => {
     try {
       setLoading(true);
-      const res = await api.get("/dashboard");
+      const res = await api.get("/reports/today");
       setReport(res.data);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadReport();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadReport();
+    }, []),
+  );
+
+  const productsSold = report?.productsSold || {};
+  const sortedProducts = Object.entries(productsSold).sort(
+    ([, a]: any, [, b]: any) => Number(b) - Number(a),
+  );
+
+  const totalItemsSold = sortedProducts.reduce(
+    (sum: number, [, qty]: any) => sum + Number(qty),
+    0,
+  );
 
   return (
     <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <Text style={styles.brand}>Reports</Text>
-        <Text style={styles.subtitle}>Today’s business summary</Text>
+        <Text style={styles.subtitle}>Detailed daily sales summary</Text>
       </View>
 
       <TouchableOpacity onPress={loadReport} style={styles.refreshButton}>
         <Ionicons name="refresh-outline" size={18} color={COLORS.white} />
         <Text style={styles.refreshText}>
-          {loading ? "Loading..." : "Refresh"}
+          {loading ? "Loading..." : "Refresh Report"}
         </Text>
       </TouchableOpacity>
 
-      <View style={styles.grid}>
-        <ReportCard
-          icon="cash-outline"
-          label="Today Sales"
-          value={`₱${report?.todaySales || 0}.00`}
-        />
-        <ReportCard
-          icon="receipt-outline"
-          label="Orders Today"
-          value={report?.todayOrders || 0}
-        />
-      </View>
-
-      <View style={styles.grid}>
-        <ReportCard
-          icon="fast-food-outline"
-          label="Products"
-          value={report?.totalProducts || 0}
-        />
-        <ReportCard
-          icon="people-outline"
-          label="Customers"
-          value={report?.totalCustomers || 0}
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Best Seller</Text>
-        <Text style={styles.bestSeller}>
-          {report?.bestSeller || "No sales yet"}
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryLabel}>Total Sales Today</Text>
+        <Text style={styles.summaryValue}>
+          ₱{formatMoney(report?.totalSales || 0)}
         </Text>
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Product Breakdown</Text>
+      <View style={styles.grid}>
+        <ReportCard
+          icon="receipt-outline"
+          label="Orders"
+          value={report?.totalOrders || 0}
+        />
+        <ReportCard
+          icon="cube-outline"
+          label="Items Sold"
+          value={totalItemsSold}
+        />
+      </View>
 
-        {report?.productsSold && Object.keys(report.productsSold).length > 0 ? (
-          Object.entries(report.productsSold).map(([name, qty]: any) => (
-            <View key={name} style={styles.productRow}>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Product Ranking</Text>
+
+        {sortedProducts.length > 0 ? (
+          sortedProducts.map(([name, qty]: any, index) => (
+            <View key={name} style={styles.rankingRow}>
+              <View style={styles.rankBadge}>
+                <Text style={styles.rankText}>{index + 1}</Text>
+              </View>
+
               <Text style={styles.productName}>{name}</Text>
-              <Text style={styles.productQty}>{qty}</Text>
+              <Text style={styles.productQty}>{qty} sold</Text>
             </View>
           ))
         ) : (
           <Text style={styles.empty}>No product sales yet today.</Text>
         )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Quick Insights</Text>
+
+        <View style={styles.insightRow}>
+          <Text style={styles.insightLabel}>Best Seller</Text>
+          <Text style={styles.insightValue}>
+            {sortedProducts[0]?.[0] || "No sales yet"}
+          </Text>
+        </View>
+
+        <View style={styles.insightRow}>
+          <Text style={styles.insightLabel}>Total Items Sold</Text>
+          <Text style={styles.insightValue}>{totalItemsSold}</Text>
+        </View>
+
+        <View style={styles.insightRow}>
+          <Text style={styles.insightLabel}>Average Order Value</Text>
+          <Text style={styles.insightValue}>
+            ₱
+            {formatMoney(
+              report?.totalOrders
+                ? (report?.totalSales || 0) / report.totalOrders
+                : 0,
+            )}
+          </Text>
+        </View>
       </View>
 
       <View style={{ height: 120 }} />
@@ -112,6 +144,13 @@ function ReportCard({ icon, label, value }: any) {
       <Text style={styles.value}>{value}</Text>
     </View>
   );
+}
+
+function formatMoney(value: number) {
+  return Number(value || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 }
 
 const styles = StyleSheet.create({
@@ -149,6 +188,22 @@ const styles = StyleSheet.create({
   refreshText: {
     color: COLORS.white,
     fontWeight: "900",
+  },
+  summaryCard: {
+    backgroundColor: COLORS.dark,
+    padding: 22,
+    borderRadius: 24,
+    marginBottom: 12,
+  },
+  summaryLabel: {
+    color: "#D7C2A7",
+    fontWeight: "800",
+  },
+  summaryValue: {
+    marginTop: 8,
+    color: COLORS.white,
+    fontWeight: "900",
+    fontSize: 34,
   },
   grid: {
     flexDirection: "row",
@@ -188,27 +243,51 @@ const styles = StyleSheet.create({
     color: COLORS.brown,
     marginBottom: 12,
   },
-  bestSeller: {
-    fontSize: 18,
-    color: COLORS.dark,
-    fontWeight: "900",
-  },
-  productRow: {
+  rankingRow: {
     backgroundColor: "#FFFDF8",
     padding: 14,
     borderRadius: 16,
     marginBottom: 8,
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
+  rankBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: COLORS.gold,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rankText: {
+    color: COLORS.white,
+    fontWeight: "900",
   },
   productName: {
-    fontWeight: "800",
-    color: COLORS.dark,
     flex: 1,
+    fontWeight: "900",
+    color: COLORS.dark,
   },
   productQty: {
     fontWeight: "900",
     color: COLORS.gold,
+  },
+  insightRow: {
+    backgroundColor: "#FFFDF8",
+    padding: 14,
+    borderRadius: 16,
+    marginBottom: 8,
+  },
+  insightLabel: {
+    color: COLORS.lightBrown,
+    fontWeight: "800",
+  },
+  insightValue: {
+    marginTop: 4,
+    color: COLORS.dark,
+    fontWeight: "900",
+    fontSize: 16,
   },
   empty: {
     color: COLORS.lightBrown,
