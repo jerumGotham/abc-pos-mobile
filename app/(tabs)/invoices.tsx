@@ -589,22 +589,29 @@ export default function Invoices() {
                 </ScrollView>
 
                 {selectedVariantId ? (
-                  <View style={styles.addSummaryBox}>
-                    <Text style={styles.modalLabel}>Quantity</Text>
+                  <View style={styles.qtyBox}>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setNewQty(String(Math.max(1, Number(newQty || 1) - 1)))
+                      }
+                      style={styles.qtyButtonLight}
+                    >
+                      <Ionicons name="remove" size={18} color={COLORS.brown} />
+                    </TouchableOpacity>
+
                     <TextInput
+                      keyboardType="numeric"
                       value={newQty}
                       onChangeText={setNewQty}
-                      keyboardType="numeric"
-                      style={styles.input}
+                      style={styles.qtyInput}
                     />
 
-                    <Text style={styles.modalLabel}>Price</Text>
-                    <TextInput
-                      value={newPrice}
-                      onChangeText={setNewPrice}
-                      keyboardType="numeric"
-                      style={styles.input}
-                    />
+                    <TouchableOpacity
+                      onPress={() => setNewQty(String(Number(newQty || 0) + 1))}
+                      style={styles.qtyButton}
+                    >
+                      <Ionicons name="add" size={18} color={COLORS.white} />
+                    </TouchableOpacity>
                   </View>
                 ) : (
                   <Text style={styles.helperText}>Select a variant first.</Text>
@@ -1039,5 +1046,44 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 16,
     marginTop: 10,
+  },
+  qtyInput: {
+    width: 55,
+    textAlign: "center",
+    fontWeight: "900",
+    fontSize: 18,
+    color: COLORS.dark,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    paddingVertical: 8,
+  },
+  qtyBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+
+  qtyButton: {
+    backgroundColor: COLORS.brown,
+    padding: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 40,
+  },
+
+  qtyButtonLight: {
+    backgroundColor: COLORS.white,
+    padding: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 40,
+    borderWidth: 1,
+    borderColor: COLORS.brown,
   },
 });

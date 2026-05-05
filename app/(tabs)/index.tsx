@@ -4,12 +4,13 @@ import {
   ScrollView,
   StyleSheet,
   RefreshControl,
+  TouchableOpacity,
 } from "react-native";
 import { useState, useCallback } from "react";
 import { useFocusEffect } from "expo-router";
 import { api } from "@/services/api";
 import { Ionicons } from "@expo/vector-icons";
-
+import { useRouter } from "expo-router";
 const COLORS = {
   cream: "#F7EEDC",
   card: "#FFF9EE",
@@ -21,6 +22,7 @@ const COLORS = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
   const [dashboard, setDashboard] = useState<any>(null);
 
   const loadDashboard = async () => {
@@ -64,18 +66,25 @@ export default function Dashboard() {
           value={dashboard?.todayOrders || 0}
         />
       </View>
-
       <View style={styles.grid}>
-        <Card
-          icon="fast-food-outline"
-          label="Products"
-          value={dashboard?.totalProducts || 0}
-        />
-        <Card
-          icon="people-outline"
-          label="Customers"
-          value={dashboard?.totalCustomers || 0}
-        />
+        <TouchableOpacity style={{ flex: 1 }}>
+          <Card
+            icon="fast-food-outline"
+            label="Products"
+            value={dashboard?.totalProducts || 0}
+          />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          onPress={() => router.push("/customers")}
+        >
+          <Card
+            icon="people-outline"
+            label="Customers"
+            value={dashboard?.totalCustomers || 0}
+          />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.wideCard}>
