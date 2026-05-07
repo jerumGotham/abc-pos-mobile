@@ -12,6 +12,7 @@ import {
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
+  RefreshControl,
 } from "react-native";
 import { useEffect, useMemo, useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -56,12 +57,38 @@ export default function OrderScreen() {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshAll = async () => {
+    try {
+      setRefreshing(true);
+      setLoading(true);
+
+      const productRes = await api.get("/products");
+      setProducts(productRes.data);
+
+      if (selectedCustomer) {
+        const customerRes = await api.get(
+          `/customers?search=${encodeURIComponent(selectedCustomer.name)}`,
+        );
+
+        const exact = customerRes.data.find(
+          (c: Customer) => c.id === selectedCustomer.id,
+        );
+
+        if (exact) setSelectedCustomer(exact);
+      }
+    } catch (error) {
+      console.log("REFRESH ERROR:", error);
+      Alert.alert("Error", "Cannot connect to backend.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
-    api
-      .get("/products")
-      .then((res) => setProducts(res.data))
-      .catch(() => Alert.alert("Error", "Cannot connect to backend."))
-      .finally(() => setLoading(false));
+    refreshAll();
   }, []);
 
   useEffect(() => {
@@ -256,9 +283,22 @@ export default function OrderScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
+        alwaysBounceVertical={true}
+        bounces={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshAll}
+            tintColor={COLORS.brown}
+            colors={[COLORS.brown]}
+            progressBackgroundColor={COLORS.card}
+            progressViewOffset={Platform.OS === "ios" ? 40 : 70}
+          />
+        }
       >
         <Text style={styles.title}>Customer</Text>
 
@@ -350,7 +390,7 @@ export default function OrderScreen() {
           <Text style={styles.smallLabel}>Order Type</Text>
 
           <View style={styles.platformRow}>
-            {["Messenger", "Facebook", "Walk-in", "Instagram"].map((p) => (
+            {["Messenger", "FB Page", "Walk-in", "Instagram"].map((p) => (
               <TouchableOpacity
                 key={p}
                 onPress={() => setPlatform(p)}
