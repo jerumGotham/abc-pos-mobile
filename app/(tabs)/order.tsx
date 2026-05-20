@@ -13,10 +13,13 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   RefreshControl,
+  SafeAreaView,
 } from "react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
+import ViewShot from "react-native-view-shot";
+import * as MediaLibrary from "expo-media-library";
 import { api } from "@/services/api";
 import { Customer, Product } from "@/types";
 
@@ -28,14 +31,20 @@ const COLORS = {
   gold: "#B8894A",
   dark: "#2B1A12",
   white: "#FFFFFF",
+  danger: "#B3261E",
 };
 
 export default function OrderScreen() {
+  const invoiceRef = useRef<ViewShot>(null);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [items, setItems] = useState<any>({});
+  const [cartItems, setCartItems] = useState<any>({});
+
   const [loading, setLoading] = useState(true);
   const [customerLoading, setCustomerLoading] = useState(false);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [productSearch, setProductSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
@@ -46,18 +55,36 @@ export default function OrderScreen() {
   const [platform, setPlatform] = useState("Messenger");
 
   const now = new Date();
-
   const [deliveryDate, setDeliveryDate] = useState<Date>(now);
   const [deliveryTime, setDeliveryTime] = useState<Date>(now);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [cartModalOpen, setCartModalOpen] = useState(false);
+  const [invoiceVisible, setInvoiceVisible] = useState(false);
+
+  const [savedOrder, setSavedOrder] = useState<any>(null);
+
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
 
-  const [refreshing, setRefreshing] = useState(false);
+  const cartList = Object.entries(cartItems).map(([key, value]: any) => ({
+    key,
+    ...value,
+  }));
+
+  const total = cartList.reduce(
+    (sum: number, item: any) =>
+      sum + Number(item.price) * Number(item.quantity),
+    0,
+  );
+
+  const totalQty = cartList.reduce(
+    (sum: number, item: any) => sum + Number(item.quantity),
+    0,
+  );
 
   const refreshAll = async () => {
     try {
@@ -66,18 +93,6 @@ export default function OrderScreen() {
 
       const productRes = await api.get("/products");
       setProducts(productRes.data);
-
-      if (selectedCustomer) {
-        const customerRes = await api.get(
-          `/customers?search=${encodeURIComponent(selectedCustomer.name)}`,
-        );
-
-        const exact = customerRes.data.find(
-          (c: Customer) => c.id === selectedCustomer.id,
-        );
-
-        if (exact) setSelectedCustomer(exact);
-      }
     } catch (error) {
       console.log("REFRESH ERROR:", error);
       Alert.alert("Error", "Cannot connect to backend.");
@@ -104,9 +119,11 @@ export default function OrderScreen() {
 
       try {
         setCustomerLoading(true);
+
         const res = await api.get(
           `/customers?search=${encodeURIComponent(value)}`,
         );
+
         setCustomers(res.data);
       } catch {
         setCustomers([]);
@@ -123,76 +140,120 @@ export default function OrderScreen() {
 
     if (!value) return products;
 
-    return products.filter((p) => {
-      const productMatch = p.name.toLowerCase().includes(value);
-      const variantMatch = p.variants.some((v) =>
-        v.label.toLowerCase().includes(value),
+    return products.filter((product: any) => {
+      const productMatch = product.name.toLowerCase().includes(value);
+
+      const variantMatch = product.variants.some((variant: any) =>
+        variant.label.toLowerCase().includes(value),
       );
 
       return productMatch || variantMatch;
     });
   }, [products, productSearch]);
 
-  const addItem = (product: Product, variant: any) => {
+  const addToCart = (product: Product, variant: any) => {
     Keyboard.dismiss();
 
     const key = `${product.id}-${variant.id}`;
-    const current = items[key];
+    const current = cartItems[key];
 
-    setItems({
-      ...items,
+    setCartItems({
+      ...cartItems,
       [key]: {
         productId: product.id,
         variantId: variant.id,
         productName: product.name,
         variantLabel: variant.label,
         price: current ? current.price : variant.price,
-        quantity: current ? current.quantity + 1 : 1,
+        quantity: current ? Number(current.quantity) + 1 : 1,
       },
     });
   };
 
-  const removeItem = (product: Product, variant: any) => {
-    const key = `${product.id}-${variant.id}`;
-    const current = items[key];
-
+  const increaseCartQty = (key: string) => {
+    const current = cartItems[key];
     if (!current) return;
 
-    if (current.quantity <= 1) {
-      const copy = { ...items };
+    setCartItems({
+      ...cartItems,
+      [key]: {
+        ...current,
+        quantity: Number(current.quantity) + 1,
+      },
+    });
+  };
+
+  const decreaseCartQty = (key: string) => {
+    const current = cartItems[key];
+    if (!current) return;
+
+    const nextQty = Number(current.quantity) - 1;
+
+    if (nextQty <= 0) {
+      const copy = { ...cartItems };
       delete copy[key];
-      setItems(copy);
+      setCartItems(copy);
       return;
     }
 
-    setItems({
-      ...items,
+    setCartItems({
+      ...cartItems,
       [key]: {
         ...current,
-        quantity: current.quantity - 1,
+        quantity: nextQty,
       },
     });
   };
 
-  const updatePrice = (key: string, value: string) => {
-    setItems({
-      ...items,
+  const updateCartQty = (key: string, value: string) => {
+    const cleanValue = value.replace(/[^0-9]/g, "");
+
+    if (cleanValue === "") {
+      setCartItems({
+        ...cartItems,
+        [key]: {
+          ...cartItems[key],
+          quantity: "",
+        },
+      });
+      return;
+    }
+
+    const qty = Number(cleanValue);
+
+    if (qty <= 0) {
+      const copy = { ...cartItems };
+      delete copy[key];
+      setCartItems(copy);
+      return;
+    }
+
+    setCartItems({
+      ...cartItems,
       [key]: {
-        ...items[key],
-        price: Number(value) || 0,
+        ...cartItems[key],
+        quantity: qty,
       },
     });
   };
 
-  const total = Object.values(items).reduce(
-    (sum: number, item: any) => sum + item.price * item.quantity,
-    0,
-  );
+  const updateCartPrice = (key: string, value: string) => {
+    const cleanValue = value.replace(/[^0-9.]/g, "");
 
-  const totalQty = Object.values(items).reduce(
-    (sum: number, item: any) => sum + item.quantity,
-    0,
-  );
+    setCartItems({
+      ...cartItems,
+      [key]: {
+        ...cartItems[key],
+        price: cleanValue,
+      },
+    });
+  };
+
+  const removeCartItem = (key: string) => {
+    const copy = { ...cartItems };
+    delete copy[key];
+    setCartItems(copy);
+  };
 
   const resetCustomerModal = () => {
     setNewCustomerName("");
@@ -226,14 +287,23 @@ export default function OrderScreen() {
     }
   };
 
-  const submit = async () => {
+  const createOrder = async () => {
     if (!selectedCustomer) {
       Alert.alert("Customer required", "Please select or create a customer.");
       return;
     }
 
-    if (Object.values(items).length === 0) {
+    if (cartList.length === 0) {
       Alert.alert("No items", "Please add at least one product.");
+      return;
+    }
+
+    const invalidItem = cartList.find(
+      (item: any) => Number(item.quantity) <= 0 || Number(item.price) < 0,
+    );
+
+    if (invalidItem) {
+      Alert.alert("Invalid item", "Please check item quantity and price.");
       return;
     }
 
@@ -248,6 +318,8 @@ export default function OrderScreen() {
     }
 
     try {
+      setCreatingOrder(true);
+
       const res = await api.post("/orders", {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
@@ -257,23 +329,67 @@ export default function OrderScreen() {
         deliveryAt: deliveryAtValue,
         paymentMethod: "GCASH",
         paymentStatus: "PAID",
-        items: Object.values(items),
+        items: cartList.map((item: any) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: item.productName,
+          variantLabel: item.variantLabel,
+          price: Number(item.price),
+          quantity: Number(item.quantity),
+        })),
       });
 
-      await api.get("/orders");
+      setSavedOrder(res.data);
+      setCartModalOpen(false);
+      setInvoiceVisible(true);
 
-      Alert.alert("Invoice Created", res.data.invoiceNo);
-
-      const today = new Date();
-
-      setItems({});
+      setCartItems({});
       setSelectedCustomer(null);
       setCustomerSearch("");
       setCustomers([]);
+
+      const today = new Date();
       setDeliveryDate(today);
       setDeliveryTime(today);
-    } catch {
-      Alert.alert("Error", "Failed to create invoice.");
+    } catch (error: any) {
+      console.log(
+        "CREATE ORDER ERROR:",
+        error?.response?.data || error?.message,
+      );
+
+      Alert.alert(
+        "Error",
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          "Failed to create order.",
+      );
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
+
+  const saveInvoiceImage = async () => {
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert("Permission required", "Please allow photo permission.");
+        return;
+      }
+
+      const uri = await invoiceRef.current?.capture?.();
+
+      if (!uri) {
+        Alert.alert("Error", "Unable to capture invoice.");
+        return;
+      }
+
+      await MediaLibrary.saveToLibraryAsync(uri);
+
+      Alert.alert("Saved", "Invoice image saved to gallery.");
+    } catch (error) {
+      console.log("SAVE IMAGE ERROR:", error);
+      Alert.alert("Error", "Failed to save invoice image.");
     }
   };
 
@@ -287,8 +403,6 @@ export default function OrderScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
-        alwaysBounceVertical={true}
-        bounces={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -296,7 +410,6 @@ export default function OrderScreen() {
             tintColor={COLORS.brown}
             colors={[COLORS.brown]}
             progressBackgroundColor={COLORS.card}
-            progressViewOffset={Platform.OS === "ios" ? 40 : 70}
           />
         }
       >
@@ -455,54 +568,33 @@ export default function OrderScreen() {
             <Text style={styles.noResultText}>No product found</Text>
           </View>
         ) : (
-          filteredProducts.map((product) => (
+          filteredProducts.map((product: any) => (
             <View key={product.id} style={styles.productCard}>
               <Text style={styles.productName}>{product.name}</Text>
 
-              {product.variants.map((variant) => {
+              {product.variants.map((variant: any) => {
                 const key = `${product.id}-${variant.id}`;
-                const qty = items[key]?.quantity || 0;
+                const qty = cartItems[key]?.quantity || 0;
 
                 return (
                   <View key={variant.id} style={styles.variantRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.variantLabel}>{variant.label}</Text>
-                      <Text style={styles.price}>
-                        Default ₱{variant.price}.00
-                      </Text>
-
-                      {qty > 0 && (
-                        <TextInput
-                          keyboardType="numeric"
-                          value={String(items[key].price)}
-                          onChangeText={(value) => updatePrice(key, value)}
-                          style={styles.priceInput}
-                          returnKeyType="done"
-                        />
-                      )}
+                      <Text style={styles.price}>₱{variant.price}</Text>
                     </View>
 
-                    <View style={styles.qtyBox}>
-                      <TouchableOpacity
-                        onPress={() => removeItem(product, variant)}
-                        style={styles.qtyButtonLight}
-                      >
-                        <Ionicons
-                          name="remove"
-                          size={18}
-                          color={COLORS.brown}
-                        />
-                      </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => addToCart(product, variant)}
+                      style={styles.productPlusButton}
+                    >
+                      <Ionicons name="add" size={22} color={COLORS.white} />
+                    </TouchableOpacity>
 
-                      <Text style={styles.qty}>{qty}</Text>
-
-                      <TouchableOpacity
-                        onPress={() => addItem(product, variant)}
-                        style={styles.qtyButton}
-                      >
-                        <Ionicons name="add" size={18} color={COLORS.white} />
-                      </TouchableOpacity>
-                    </View>
+                    {qty > 0 && (
+                      <View style={styles.productQtyBadge}>
+                        <Text style={styles.productQtyBadgeText}>{qty}</Text>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -510,25 +602,339 @@ export default function OrderScreen() {
           ))
         )}
 
-        <View style={{ height: 190 }} />
+        <View style={{ height: 160 }} />
       </ScrollView>
+
+      {totalQty > 0 && (
+        <TouchableOpacity
+          onPress={() => setCartModalOpen(true)}
+          style={styles.floatingCartButton}
+        >
+          <View>
+            <Text style={styles.floatingCartText}>Cart</Text>
+            <Text style={styles.floatingCartSub}>
+              {totalQty} item{totalQty > 1 ? "s" : ""} • ₱{total}
+            </Text>
+          </View>
+
+          <View style={styles.cartIconBox}>
+            <Ionicons name="cart-outline" size={24} color={COLORS.white} />
+            <View style={styles.cartBadge}>
+              <Text style={styles.cartBadgeText}>{totalQty}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      <Modal visible={cartModalOpen} transparent animationType="slide">
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.cartModalBox}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Order Cart</Text>
+
+              <TouchableOpacity onPress={() => setCartModalOpen(false)}>
+                <Ionicons name="close-circle" size={30} color={COLORS.brown} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedCustomer && (
+              <View style={styles.cartCustomerBox}>
+                <Text style={styles.cartCustomerLabel}>Customer</Text>
+                <Text style={styles.cartCustomerName}>
+                  {selectedCustomer.name}
+                </Text>
+                <Text style={styles.cartCustomerInfo}>
+                  {selectedCustomer.contact || "No contact"} •{" "}
+                  {selectedCustomer.address || "No address"}
+                </Text>
+              </View>
+            )}
+
+            {cartList.length === 0 ? (
+              <View style={styles.emptyCartBox}>
+                <Ionicons
+                  name="cart-outline"
+                  size={42}
+                  color={COLORS.lightBrown}
+                />
+                <Text style={styles.emptyCartText}>Your cart is empty.</Text>
+              </View>
+            ) : (
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {cartList.map((item: any) => (
+                  <View key={item.key} style={styles.cartItemCard}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cartProductName}>
+                        {item.productName}
+                      </Text>
+                      <Text style={styles.cartVariantName}>
+                        {item.variantLabel}
+                      </Text>
+
+                      <Text style={styles.cartSmallLabel}>Price</Text>
+                      <TextInput
+                        keyboardType="numeric"
+                        value={String(item.price)}
+                        onChangeText={(value) =>
+                          updateCartPrice(item.key, value)
+                        }
+                        style={styles.cartInput}
+                      />
+                    </View>
+
+                    <View style={styles.cartQtyArea}>
+                      <TouchableOpacity
+                        onPress={() => removeCartItem(item.key)}
+                        style={styles.removeItemButton}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color={COLORS.danger}
+                        />
+                      </TouchableOpacity>
+
+                      <View style={styles.cartQtyBox}>
+                        <TouchableOpacity
+                          onPress={() => decreaseCartQty(item.key)}
+                          style={styles.cartQtyButtonLight}
+                        >
+                          <Ionicons
+                            name="remove"
+                            size={18}
+                            color={COLORS.brown}
+                          />
+                        </TouchableOpacity>
+
+                        <TextInput
+                          keyboardType="numeric"
+                          value={String(item.quantity)}
+                          onChangeText={(value) =>
+                            updateCartQty(item.key, value)
+                          }
+                          style={styles.qtyInput}
+                        />
+
+                        <TouchableOpacity
+                          onPress={() => increaseCartQty(item.key)}
+                          style={styles.cartQtyButton}
+                        >
+                          <Ionicons name="add" size={18} color={COLORS.white} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={styles.cartSubtotal}>
+                        ₱{Number(item.price || 0) * Number(item.quantity || 0)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+
+                <View style={styles.cartTotalBox}>
+                  <Text style={styles.cartTotalLabel}>Total</Text>
+                  <Text style={styles.cartTotalAmount}>₱{total}</Text>
+                </View>
+              </ScrollView>
+            )}
+
+            <View style={styles.cartActionRow}>
+              <TouchableOpacity
+                onPress={() => setCartModalOpen(false)}
+                style={styles.cancelCartButton}
+              >
+                <Text style={styles.cancelCartText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={createOrder}
+                disabled={creatingOrder || cartList.length === 0}
+                style={[
+                  styles.createOrderButton,
+                  (creatingOrder || cartList.length === 0) &&
+                    styles.disabledButton,
+                ]}
+              >
+                {creatingOrder ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="receipt-outline"
+                      size={20}
+                      color={COLORS.white}
+                    />
+                    <Text style={styles.createOrderText}>Create Order</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={invoiceVisible} animationType="slide">
+        <SafeAreaView style={styles.invoiceSafe}>
+          <ScrollView contentContainerStyle={styles.invoicePage}>
+            {savedOrder && (
+              <ViewShot
+                ref={invoiceRef}
+                options={{ format: "png", quality: 1 }}
+              >
+                <View style={styles.receiptTable}>
+                  <View style={styles.receiptFullRow}>
+                    <Text style={styles.receiptTitle}>
+                      {(
+                        savedOrder.customer?.name ||
+                        savedOrder.customerName ||
+                        "CUSTOMER"
+                      ).toUpperCase()}{" "}
+                      /{" "}
+                      {(
+                        savedOrder.platform ||
+                        platform ||
+                        "MESSENGER"
+                      ).toUpperCase()}
+                    </Text>
+                  </View>
+
+                  <View style={styles.receiptFullRow}>
+                    <Text style={styles.receiptInfo}>
+                      Delivery:{" "}
+                      {savedOrder.deliveryAt
+                        ? new Date(savedOrder.deliveryAt).toLocaleString(
+                            "en-US",
+                            {
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                              hour12: true,
+                            },
+                          )
+                        : "N/A"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.receiptFullRow}>
+                    <Text style={styles.receiptInfo}>
+                      Address:{" "}
+                      {savedOrder.customer?.address ||
+                        savedOrder.customerAddress ||
+                        "N/A"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.receiptHeaderRow}>
+                    <Text
+                      style={[styles.receiptHeaderCell, styles.descriptionCell]}
+                    >
+                      Description
+                    </Text>
+                    <Text style={[styles.receiptHeaderCell, styles.qtyCell]}>
+                      Qty.
+                    </Text>
+                    <Text style={[styles.receiptHeaderCell, styles.priceCell]}>
+                      Price
+                    </Text>
+                    <Text style={[styles.receiptHeaderCell, styles.totalCell]}>
+                      Total
+                    </Text>
+                  </View>
+
+                  {(savedOrder.items || []).map((item: any, index: number) => (
+                    <View key={index} style={styles.receiptItemRow}>
+                      <Text
+                        style={[styles.receiptItemCell, styles.descriptionCell]}
+                      >
+                        {`${item.product?.name || item.productName || "PRODUCT"} - ${
+                          item.variant?.label || item.variantLabel || "VARIANT"
+                        }`.toUpperCase()}
+                      </Text>
+
+                      <Text style={[styles.receiptItemCell, styles.qtyCell]}>
+                        {item.quantity}
+                      </Text>
+
+                      <Text style={[styles.receiptItemCell, styles.priceCell]}>
+                        {Number(item.price)}
+                      </Text>
+
+                      <Text style={[styles.receiptItemCell, styles.totalCell]}>
+                        {Number(item.price) * Number(item.quantity)}
+                      </Text>
+                    </View>
+                  ))}
+
+                  <View style={styles.receiptTotalRow}>
+                    <Text
+                      style={[styles.receiptTotalText, styles.descriptionCell]}
+                    >
+                      Total
+                    </Text>
+
+                    <Text style={[styles.receiptTotalText, styles.qtyCell]}>
+                      {(savedOrder.items || []).reduce(
+                        (sum: number, item: any) => sum + Number(item.quantity),
+                        0,
+                      )}
+                    </Text>
+
+                    <Text style={[styles.receiptTotalText, styles.priceCell]} />
+
+                    <Text style={[styles.receiptTotalText, styles.totalCell]}>
+                      {(savedOrder.items || []).reduce(
+                        (sum: number, item: any) =>
+                          sum + Number(item.price) * Number(item.quantity),
+                        0,
+                      )}
+                    </Text>
+                  </View>
+                </View>
+              </ViewShot>
+            )}
+
+            <View style={styles.invoiceButtonRow}>
+              <TouchableOpacity
+                onPress={() => setInvoiceVisible(false)}
+                style={styles.invoiceCloseButton}
+              >
+                <Text style={styles.invoiceCloseText}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={saveInvoiceImage}
+                style={styles.invoiceSaveButton}
+              >
+                <Ionicons name="image-outline" size={20} color={COLORS.white} />
+                <Text style={styles.invoiceSaveText}>Save Image</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal visible={showDatePicker} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Select Delivery Date</Text>
 
-            <View style={styles.pickerWrapper}>
-              <DateTimePicker
-                value={deliveryDate || new Date()}
-                mode="date"
-                display="spinner"
-                style={styles.picker}
-                onChange={(event, selectedDate) => {
-                  if (selectedDate) setDeliveryDate(selectedDate);
-                }}
-              />
-            </View>
+            <DateTimePicker
+              value={deliveryDate || new Date()}
+              mode="date"
+              display="spinner"
+              style={styles.picker}
+              onChange={(event, selectedDate) => {
+                if (selectedDate) setDeliveryDate(selectedDate);
+              }}
+            />
+
             <TouchableOpacity
               onPress={() => setShowDatePicker(false)}
               style={styles.saveCustomerButton}
@@ -543,17 +949,17 @@ export default function OrderScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Select Delivery Time</Text>
-            <View style={styles.pickerWrapper}>
-              <DateTimePicker
-                value={deliveryTime || new Date()}
-                mode="time"
-                display="spinner"
-                style={styles.picker}
-                onChange={(event, selectedTime) => {
-                  if (selectedTime) setDeliveryTime(selectedTime);
-                }}
-              />
-            </View>
+
+            <DateTimePicker
+              value={deliveryTime || new Date()}
+              mode="time"
+              display="spinner"
+              style={styles.picker}
+              onChange={(event, selectedTime) => {
+                if (selectedTime) setDeliveryTime(selectedTime);
+              }}
+            />
+
             <TouchableOpacity
               onPress={() => setShowTimePicker(false)}
               style={styles.saveCustomerButton}
@@ -568,7 +974,6 @@ export default function OrderScreen() {
         <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 20 : 0}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.keyboardSafeArea}>
@@ -581,7 +986,6 @@ export default function OrderScreen() {
                   value={newCustomerName}
                   onChangeText={setNewCustomerName}
                   style={styles.input}
-                  returnKeyType="next"
                 />
 
                 <TextInput
@@ -591,7 +995,6 @@ export default function OrderScreen() {
                   onChangeText={setNewCustomerPhone}
                   style={styles.input}
                   keyboardType="phone-pad"
-                  returnKeyType="next"
                 />
 
                 <TextInput
@@ -602,7 +1005,6 @@ export default function OrderScreen() {
                   style={[styles.input, styles.addressInput]}
                   multiline
                   textAlignVertical="top"
-                  returnKeyType="done"
                 />
 
                 <TouchableOpacity
@@ -627,18 +1029,6 @@ export default function OrderScreen() {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
-
-      <View style={styles.footer}>
-        <View>
-          <Text style={styles.totalLabel}>Qty: {totalQty}</Text>
-          <Text style={styles.total}>₱{total}.00</Text>
-        </View>
-
-        <TouchableOpacity onPress={submit} style={styles.createButton}>
-          <Ionicons name="receipt-outline" size={20} color={COLORS.white} />
-          <Text style={styles.createButtonText}>Create Invoice</Text>
-        </TouchableOpacity>
-      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -838,6 +1228,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    position: "relative",
   },
   variantLabel: {
     fontSize: 16,
@@ -850,43 +1241,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
-  priceInput: {
-    marginTop: 8,
-    backgroundColor: "#F6EAD7",
-    borderRadius: 12,
-    padding: 10,
-    width: 110,
-    color: COLORS.dark,
-    fontWeight: "900",
-  },
-  qtyBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F6EAD7",
-    borderRadius: 999,
-    padding: 5,
-  },
-  qtyButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  productPlusButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: COLORS.brown,
     alignItems: "center",
     justifyContent: "center",
   },
-  qtyButtonLight: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: COLORS.white,
+  productQtyBadge: {
+    position: "absolute",
+    right: 5,
+    top: 5,
+    backgroundColor: COLORS.gold,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  productQtyBadgeText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  floatingCartButton: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 24,
+    backgroundColor: COLORS.dark,
+    padding: 18,
+    borderRadius: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  floatingCartText: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  floatingCartSub: {
+    color: "#EADCCB",
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  cartIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: COLORS.brown,
     alignItems: "center",
     justifyContent: "center",
   },
-  qty: {
-    width: 34,
-    textAlign: "center",
+  cartBadge: {
+    position: "absolute",
+    right: -5,
+    top: -5,
+    backgroundColor: COLORS.gold,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartBadgeText: {
+    color: COLORS.white,
+    fontSize: 12,
     fontWeight: "900",
-    color: COLORS.brown,
   },
   modalOverlay: {
     flex: 1,
@@ -903,7 +1327,19 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     width: "100%",
-    alignSelf: "stretch",
+  },
+  cartModalBox: {
+    backgroundColor: COLORS.cream,
+    padding: 20,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    width: "100%",
+    maxHeight: "88%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   modalTitle: {
     fontSize: 24,
@@ -911,10 +1347,149 @@ const styles = StyleSheet.create({
     color: COLORS.brown,
     marginBottom: 16,
   },
-  pickerWrapper: {
-    width: "100%",
+  emptyCartBox: {
+    padding: 30,
+    alignItems: "center",
+  },
+  emptyCartText: {
+    marginTop: 10,
+    fontWeight: "900",
+    color: COLORS.brown,
+  },
+  cartItemCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 12,
+    flexDirection: "row",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#ECDDC3",
+  },
+  cartProductName: {
+    color: COLORS.brown,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  cartVariantName: {
+    color: COLORS.lightBrown,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  cartSmallLabel: {
+    color: COLORS.brown,
+    fontWeight: "900",
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  cartInput: {
+    backgroundColor: "#FFFDF8",
+    borderWidth: 1,
+    borderColor: "#E8D8BE",
+    borderRadius: 12,
+    padding: 10,
+    width: 100,
+    fontWeight: "900",
+    color: COLORS.dark,
+  },
+  cartQtyArea: {
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+  },
+  removeItemButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#FFE8E5",
     alignItems: "center",
     justifyContent: "center",
+  },
+  cartQtyBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F6EAD7",
+    borderRadius: 999,
+    padding: 5,
+    marginVertical: 10,
+  },
+  cartQtyButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.brown,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartQtyButtonLight: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qtyInput: {
+    width: 45,
+    textAlign: "center",
+    fontWeight: "900",
+    color: COLORS.brown,
+    paddingVertical: 5,
+  },
+  cartSubtotal: {
+    color: COLORS.dark,
+    fontWeight: "900",
+  },
+  cartTotalBox: {
+    backgroundColor: COLORS.dark,
+    borderRadius: 20,
+    padding: 18,
+    marginTop: 6,
+    marginBottom: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  cartTotalLabel: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  cartTotalAmount: {
+    color: COLORS.white,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  cartActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingTop: 8,
+  },
+  cancelCartButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: "#F6EAD7",
+    alignItems: "center",
+  },
+  cancelCartText: {
+    color: COLORS.brown,
+    fontWeight: "900",
+  },
+  createOrderButton: {
+    flex: 1.4,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: COLORS.dark,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  createOrderText: {
+    color: COLORS.white,
+    fontWeight: "900",
   },
   picker: {
     width: "100%",
@@ -938,40 +1513,258 @@ const styles = StyleSheet.create({
     color: COLORS.brown,
     fontWeight: "900",
   },
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: COLORS.white,
-    padding: 18,
-    paddingBottom: 28,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    flexDirection: "row",
-    justifyContent: "space-between",
+  invoiceSafe: {
+    flex: 1,
+    backgroundColor: COLORS.cream,
+  },
+  invoicePage: {
+    flexGrow: 1,
+    justifyContent: "center",
     alignItems: "center",
+    padding: 20,
+    paddingVertical: 40,
   },
-  totalLabel: {
-    color: "#8A7B6A",
-    fontWeight: "800",
+  invoiceBox: {
+    backgroundColor: COLORS.white,
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: "#E8D8BE",
   },
-  total: {
-    fontSize: 26,
+  invoiceBrand: {
+    textAlign: "center",
+    fontSize: 28,
+    fontWeight: "900",
+    color: COLORS.brown,
+  },
+  invoiceNo: {
+    textAlign: "center",
+    marginTop: 6,
+    color: COLORS.lightBrown,
+    fontWeight: "900",
+  },
+  invoiceDivider: {
+    height: 1,
+    backgroundColor: "#E8D8BE",
+    marginVertical: 16,
+  },
+  invoiceCustomer: {
+    fontSize: 20,
     fontWeight: "900",
     color: COLORS.dark,
+    textAlign: "center",
+    marginBottom: 10,
   },
-  createButton: {
-    backgroundColor: COLORS.dark,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderRadius: 18,
+  invoiceInfo: {
+    color: COLORS.brown,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+  invoiceItemRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 12,
+  },
+  invoiceItemName: {
+    color: COLORS.dark,
+    fontWeight: "900",
+  },
+  invoiceItemSub: {
+    color: COLORS.lightBrown,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  invoiceItemPrice: {
+    color: COLORS.dark,
+    fontWeight: "900",
+  },
+  invoiceTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  invoiceTotalLabel: {
+    fontSize: 20,
+    color: COLORS.dark,
+    fontWeight: "900",
+  },
+  invoiceTotalAmount: {
+    fontSize: 22,
+    color: COLORS.brown,
+    fontWeight: "900",
+  },
+  invoiceFooter: {
+    textAlign: "center",
+    marginTop: 24,
+    color: COLORS.lightBrown,
+    fontWeight: "900",
+  },
+  invoiceButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  invoiceCloseButton: {
+    flex: 1,
+    backgroundColor: "#a09d99",
+    padding: 16,
+    borderRadius: 18,
     alignItems: "center",
+  },
+  invoiceCloseText: {
+    color: COLORS.brown,
+    fontWeight: "900",
+  },
+  invoiceSaveButton: {
+    flex: 1.4,
+    backgroundColor: COLORS.dark,
+    padding: 16,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     gap: 8,
   },
-  createButtonText: {
+  invoiceSaveText: {
     color: COLORS.white,
     fontWeight: "900",
+  },
+  cartCustomerBox: {
+    backgroundColor: COLORS.card,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#ECDDC3",
+  },
+  cartCustomerLabel: {
+    color: COLORS.lightBrown,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  cartCustomerName: {
+    color: COLORS.brown,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  cartCustomerInfo: {
+    color: COLORS.lightBrown,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  receiptTable: {
+    backgroundColor: COLORS.white,
+    borderWidth: 2,
+    borderColor: "#000",
+    width: "100%",
+    borderRadius: 20,
+    overflow: "hidden",
+
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+
+    elevation: 8,
+  },
+
+  receiptFullRow: {
+    borderBottomWidth: 2,
+    borderColor: "#000",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  receiptTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#000",
+    textAlign: "center",
+  },
+
+  receiptInfo: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#000",
+    textAlign: "center",
+  },
+
+  receiptHeaderRow: {
+    flexDirection: "row",
+    borderBottomWidth: 2,
+    borderColor: "#000",
+    minHeight: 58,
+  },
+
+  receiptHeaderCell: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#000",
+    textAlign: "center",
+    textAlignVertical: "center",
+    paddingVertical: 14,
+    borderRightWidth: 2,
+    borderColor: "#000",
+  },
+
+  receiptItemRow: {
+    flexDirection: "row",
+    minHeight: 75,
+    borderBottomWidth: 2,
+    borderColor: "#000",
+  },
+
+  receiptItemCell: {
+    fontSize: 15,
+    color: "#000",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRightWidth: 2,
+    borderColor: "#000",
+    textAlign: "center",
+  },
+
+  receiptTotalRow: {
+    flexDirection: "row",
+    minHeight: 55,
+  },
+
+  receiptTotalText: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#000",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRightWidth: 2,
+    borderColor: "#000",
+    textAlign: "center",
+  },
+
+  descriptionCell: {
+    width: "46%",
+    textAlign: "left",
+  },
+
+  qtyCell: {
+    width: "16%",
+    textAlign: "center",
+  },
+
+  priceCell: {
+    width: "19%",
+    textAlign: "center",
+  },
+
+  totalCell: {
+    width: "19%",
+    textAlign: "center",
+    borderRightWidth: 0,
   },
 });
