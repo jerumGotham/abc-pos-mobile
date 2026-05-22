@@ -35,7 +35,7 @@ const COLORS = {
 };
 
 export default function OrderScreen() {
-  const invoiceRef = useRef<ViewShot>(null);
+  const invoiceRefs = useRef<any[]>([]);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -45,6 +45,7 @@ export default function OrderScreen() {
   const [customerLoading, setCustomerLoading] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
 
   const [productSearch, setProductSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
@@ -85,6 +86,19 @@ export default function OrderScreen() {
     (sum: number, item: any) => sum + Number(item.quantity),
     0,
   );
+
+  const ITEMS_PER_IMAGE = 12;
+
+  const invoicePages = useMemo(() => {
+    const items = savedOrder?.items || [];
+    const pages = [];
+
+    for (let i = 0; i < items.length; i += ITEMS_PER_IMAGE) {
+      pages.push(items.slice(i, i + ITEMS_PER_IMAGE));
+    }
+
+    return pages.length ? pages : [[]];
+  }, [savedOrder]);
 
   const refreshAll = async () => {
     try {
@@ -370,6 +384,8 @@ export default function OrderScreen() {
 
   const saveInvoiceImage = async () => {
     try {
+      setSavingInvoice(true);
+
       const permission = await MediaLibrary.requestPermissionsAsync();
 
       if (!permission.granted) {
@@ -377,19 +393,37 @@ export default function OrderScreen() {
         return;
       }
 
-      const uri = await invoiceRef.current?.capture?.();
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-      if (!uri) {
+      let savedCount = 0;
+
+      for (const ref of invoiceRefs.current) {
+        if (!ref) continue;
+
+        const uri = await ref.capture?.();
+
+        if (uri) {
+          await MediaLibrary.saveToLibraryAsync(uri);
+          savedCount++;
+        }
+      }
+
+      if (savedCount === 0) {
         Alert.alert("Error", "Unable to capture invoice.");
         return;
       }
 
-      await MediaLibrary.saveToLibraryAsync(uri);
-
-      Alert.alert("Saved", "Invoice image saved to gallery.");
+      Alert.alert(
+        "Saved",
+        savedCount === 1
+          ? "Invoice image saved to gallery."
+          : `${savedCount} invoice images saved to gallery.`,
+      );
     } catch (error) {
       console.log("SAVE IMAGE ERROR:", error);
       Alert.alert("Error", "Failed to save invoice image.");
+    } finally {
+      setSavingInvoice(false);
     }
   };
 
@@ -781,124 +815,177 @@ export default function OrderScreen() {
       <Modal visible={invoiceVisible} animationType="slide">
         <SafeAreaView style={styles.invoiceSafe}>
           <ScrollView contentContainerStyle={styles.invoicePage}>
-            {savedOrder && (
-              <ViewShot
-                ref={invoiceRef}
-                options={{ format: "png", quality: 1 }}
-              >
-                <View style={styles.receiptTable}>
-                  <View style={styles.receiptFullRow}>
-                    <Text style={styles.receiptTitle}>
-                      {(
-                        savedOrder.customer?.name ||
-                        savedOrder.customerName ||
-                        "CUSTOMER"
-                      ).toUpperCase()}{" "}
-                      /{" "}
-                      {(
-                        savedOrder.platform ||
-                        platform ||
-                        "MESSENGER"
-                      ).toUpperCase()}
-                    </Text>
-                  </View>
+            {savedOrder &&
+              invoicePages.map((pageItems: any[], pageIndex: number) => {
+                const isLastPage = pageIndex === invoicePages.length - 1;
 
-                  <View style={styles.receiptFullRow}>
-                    <Text style={styles.receiptInfo}>
-                      Delivery:{" "}
-                      {savedOrder.deliveryAt
-                        ? new Date(savedOrder.deliveryAt).toLocaleString(
-                            "en-US",
-                            {
-                              month: "long",
-                              day: "numeric",
-                              year: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                              hour12: true,
-                            },
-                          )
-                        : "N/A"}
-                    </Text>
-                  </View>
+                return (
+                  <ViewShot
+                    key={pageIndex}
+                    ref={(ref) => {
+                      invoiceRefs.current[pageIndex] = ref;
+                    }}
+                    options={{
+                      format: "jpg",
+                      quality: 0.9,
+                    }}
+                    style={styles.invoiceShotPage}
+                  >
+                    <View style={styles.receiptTable}>
+                      <View style={styles.receiptFullRow}>
+                        <Text style={styles.receiptTitle}>
+                          {(
+                            savedOrder.customer?.name ||
+                            savedOrder.customerName ||
+                            "CUSTOMER"
+                          ).toUpperCase()}{" "}
+                          /{" "}
+                          {(
+                            savedOrder.platform ||
+                            platform ||
+                            "MESSENGER"
+                          ).toUpperCase()}
+                        </Text>
+                      </View>
 
-                  <View style={styles.receiptFullRow}>
-                    <Text style={styles.receiptInfo}>
-                      Address:{" "}
-                      {savedOrder.customer?.address ||
-                        savedOrder.customerAddress ||
-                        "N/A"}
-                    </Text>
-                  </View>
+                      <View style={styles.receiptFullRow}>
+                        <Text style={styles.receiptInfo}>
+                          Delivery:{" "}
+                          {savedOrder.deliveryAt
+                            ? new Date(savedOrder.deliveryAt).toLocaleString(
+                                "en-US",
+                                {
+                                  month: "long",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                },
+                              )
+                            : "N/A"}
+                        </Text>
+                      </View>
 
-                  <View style={styles.receiptHeaderRow}>
-                    <Text
-                      style={[styles.receiptHeaderCell, styles.descriptionCell]}
-                    >
-                      Description
-                    </Text>
-                    <Text style={[styles.receiptHeaderCell, styles.qtyCell]}>
-                      Qty.
-                    </Text>
-                    <Text style={[styles.receiptHeaderCell, styles.priceCell]}>
-                      Price
-                    </Text>
-                    <Text style={[styles.receiptHeaderCell, styles.totalCell]}>
-                      Total
-                    </Text>
-                  </View>
+                      <View style={styles.receiptFullRow}>
+                        <Text style={styles.receiptInfo}>
+                          Address:{" "}
+                          {savedOrder.customer?.address ||
+                            savedOrder.customerAddress ||
+                            "N/A"}
+                        </Text>
+                      </View>
 
-                  {(savedOrder.items || []).map((item: any, index: number) => (
-                    <View key={index} style={styles.receiptItemRow}>
-                      <Text
-                        style={[styles.receiptItemCell, styles.descriptionCell]}
-                      >
-                        {`${item.product?.name || item.productName || "PRODUCT"} - ${
-                          item.variant?.label || item.variantLabel || "VARIANT"
-                        }`.toUpperCase()}
-                      </Text>
+                      {invoicePages.length > 1 && (
+                        <View style={styles.receiptFullRow}>
+                          <Text style={styles.receiptInfo}>
+                            Page {pageIndex + 1} of {invoicePages.length}
+                          </Text>
+                        </View>
+                      )}
 
-                      <Text style={[styles.receiptItemCell, styles.qtyCell]}>
-                        {item.quantity}
-                      </Text>
+                      <View style={styles.receiptHeaderRow}>
+                        <Text
+                          style={[
+                            styles.receiptHeaderCell,
+                            styles.descriptionCell,
+                          ]}
+                        >
+                          Description
+                        </Text>
+                        <Text
+                          style={[styles.receiptHeaderCell, styles.qtyCell]}
+                        >
+                          Qty.
+                        </Text>
+                        <Text
+                          style={[styles.receiptHeaderCell, styles.priceCell]}
+                        >
+                          Price
+                        </Text>
+                        <Text
+                          style={[styles.receiptHeaderCell, styles.totalCell]}
+                        >
+                          Total
+                        </Text>
+                      </View>
 
-                      <Text style={[styles.receiptItemCell, styles.priceCell]}>
-                        {Number(item.price)}
-                      </Text>
+                      {pageItems.map((item: any, index: number) => (
+                        <View key={index} style={styles.receiptItemRow}>
+                          <Text
+                            style={[
+                              styles.receiptItemCell,
+                              styles.descriptionCell,
+                            ]}
+                          >
+                            {`${item.product?.name || item.productName || "PRODUCT"} - ${
+                              item.variant?.label ||
+                              item.variantLabel ||
+                              "VARIANT"
+                            }`.toUpperCase()}
+                          </Text>
 
-                      <Text style={[styles.receiptItemCell, styles.totalCell]}>
-                        {Number(item.price) * Number(item.quantity)}
-                      </Text>
+                          <Text
+                            style={[styles.receiptItemCell, styles.qtyCell]}
+                          >
+                            {item.quantity}
+                          </Text>
+
+                          <Text
+                            style={[styles.receiptItemCell, styles.priceCell]}
+                          >
+                            {Number(item.price)}
+                          </Text>
+
+                          <Text
+                            style={[styles.receiptItemCell, styles.totalCell]}
+                          >
+                            {Number(item.price) * Number(item.quantity)}
+                          </Text>
+                        </View>
+                      ))}
+
+                      {isLastPage && (
+                        <View style={styles.receiptTotalRow}>
+                          <Text
+                            style={[
+                              styles.receiptTotalText,
+                              styles.descriptionCell,
+                            ]}
+                          >
+                            Total
+                          </Text>
+
+                          <Text
+                            style={[styles.receiptTotalText, styles.qtyCell]}
+                          >
+                            {(savedOrder.items || []).reduce(
+                              (sum: number, item: any) =>
+                                sum + Number(item.quantity),
+                              0,
+                            )}
+                          </Text>
+
+                          <Text
+                            style={[styles.receiptTotalText, styles.priceCell]}
+                          />
+
+                          <Text
+                            style={[styles.receiptTotalText, styles.totalCell]}
+                          >
+                            {(savedOrder.items || []).reduce(
+                              (sum: number, item: any) =>
+                                sum +
+                                Number(item.price) * Number(item.quantity),
+                              0,
+                            )}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                  ))}
-
-                  <View style={styles.receiptTotalRow}>
-                    <Text
-                      style={[styles.receiptTotalText, styles.descriptionCell]}
-                    >
-                      Total
-                    </Text>
-
-                    <Text style={[styles.receiptTotalText, styles.qtyCell]}>
-                      {(savedOrder.items || []).reduce(
-                        (sum: number, item: any) => sum + Number(item.quantity),
-                        0,
-                      )}
-                    </Text>
-
-                    <Text style={[styles.receiptTotalText, styles.priceCell]} />
-
-                    <Text style={[styles.receiptTotalText, styles.totalCell]}>
-                      {(savedOrder.items || []).reduce(
-                        (sum: number, item: any) =>
-                          sum + Number(item.price) * Number(item.quantity),
-                        0,
-                      )}
-                    </Text>
-                  </View>
-                </View>
-              </ViewShot>
-            )}
+                  </ViewShot>
+                );
+              })}
 
             <View style={styles.invoiceButtonRow}>
               <TouchableOpacity
@@ -910,10 +997,24 @@ export default function OrderScreen() {
 
               <TouchableOpacity
                 onPress={saveInvoiceImage}
-                style={styles.invoiceSaveButton}
+                disabled={savingInvoice}
+                style={[
+                  styles.invoiceSaveButton,
+                  savingInvoice && styles.disabledButton,
+                ]}
               >
-                <Ionicons name="image-outline" size={20} color={COLORS.white} />
-                <Text style={styles.invoiceSaveText}>Save Image</Text>
+                {savingInvoice ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="image-outline"
+                      size={20}
+                      color={COLORS.white}
+                    />
+                    <Text style={styles.invoiceSaveText}>Save Image</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -1523,6 +1624,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     paddingVertical: 40,
+  },
+  invoiceShotPage: {
+    width: "100%",
+    marginBottom: 20,
   },
   invoiceBox: {
     backgroundColor: COLORS.white,

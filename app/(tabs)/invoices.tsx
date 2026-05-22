@@ -12,6 +12,7 @@ import {
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
+  ActivityIndicator,
 } from "react-native";
 import { useCallback, useRef, useState } from "react";
 import { api } from "@/services/api";
@@ -36,7 +37,6 @@ export default function Invoices() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [products, setProducts] = useState<any[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -49,6 +49,8 @@ export default function Invoices() {
   const [newQty, setNewQty] = useState("1");
   const [newPrice, setNewPrice] = useState("");
   const [addSearch, setAddSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const invoiceRef = useRef<ViewShot>(null);
 
@@ -76,9 +78,19 @@ export default function Invoices() {
   };
 
   const refreshAll = async () => {
-    setRefreshing(true);
-    await Promise.all([loadOrders(), loadProducts()]);
-    setRefreshing(false);
+    try {
+      setRefreshing(true);
+      setLoading(true);
+
+      const productRes = await api.get("/products");
+      setProducts(productRes.data);
+    } catch (error) {
+      console.log("REFRESH ERROR:", error);
+      Alert.alert("Error", "Cannot connect to backend.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   useFocusEffect(
@@ -284,182 +296,195 @@ export default function Invoices() {
         ))}
       </ScrollView>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refreshAll} />
-        }
-      >
-        {selectedOrder ? (
-          <>
-            <ViewShot ref={invoiceRef} options={{ format: "png", quality: 1 }}>
-              <View style={styles.invoiceImage}>
-                <Text style={styles.invoiceHeader}>
-                  {(selectedOrder.customer?.name?.toUpperCase() ||
-                    selectedOrder.customerName?.toUpperCase() ||
-                    "WALK-IN") +
-                    " / " +
-                    (selectedOrder.platform?.toUpperCase() || "MESSENGER")}
-                </Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.brown} />
+          <Text style={styles.loadingText}>Loading invoices...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refreshAll} />
+          }
+        >
+          {selectedOrder ? (
+            <>
+              <ViewShot
+                ref={invoiceRef}
+                options={{ format: "png", quality: 1 }}
+              >
+                <View style={styles.invoiceImage}>
+                  <Text style={styles.invoiceHeader}>
+                    {(selectedOrder.customer?.name?.toUpperCase() ||
+                      selectedOrder.customerName?.toUpperCase() ||
+                      "WALK-IN") +
+                      " / " +
+                      (selectedOrder.platform?.toUpperCase() || "MESSENGER")}
+                  </Text>
 
-                {selectedOrder.deliveryAt && (
-                  <Text style={styles.deliveryText}>
-                    Delivery: {formatInvoiceDate(selectedOrder.deliveryAt)}
-                  </Text>
-                )}
+                  {selectedOrder.deliveryAt && (
+                    <Text style={styles.deliveryText}>
+                      Delivery: {formatInvoiceDate(selectedOrder.deliveryAt)}
+                    </Text>
+                  )}
 
-                {(selectedOrder.customer?.address ||
-                  selectedOrder.customerAddress) && (
-                  <Text style={styles.addressText}>
-                    Address:{" "}
-                    {selectedOrder.customer?.address?.toUpperCase() ||
-                      selectedOrder.customerAddress?.toUpperCase()}
-                  </Text>
-                )}
+                  {(selectedOrder.customer?.address ||
+                    selectedOrder.customerAddress) && (
+                    <Text style={styles.addressText}>
+                      Address:{" "}
+                      {selectedOrder.customer?.address?.toUpperCase() ||
+                        selectedOrder.customerAddress?.toUpperCase()}
+                    </Text>
+                  )}
 
-                <View style={styles.headerRow}>
-                  <Text style={[styles.cellHeader, styles.descriptionCol]}>
-                    Description
-                  </Text>
-                  <Text style={[styles.cellHeader, styles.qtyCol]}>Qty.</Text>
-                  <Text style={[styles.cellHeader, styles.priceCol]}>
-                    Price
-                  </Text>
-                  <Text style={[styles.cellHeader, styles.totalCol]}>
-                    Total
-                  </Text>
+                  <View style={styles.headerRow}>
+                    <Text style={[styles.cellHeader, styles.descriptionCol]}>
+                      Description
+                    </Text>
+                    <Text style={[styles.cellHeader, styles.qtyCol]}>Qty.</Text>
+                    <Text style={[styles.cellHeader, styles.priceCol]}>
+                      Price
+                    </Text>
+                    <Text style={[styles.cellHeader, styles.totalCol]}>
+                      Total
+                    </Text>
+                  </View>
+
+                  {selectedOrder.items.map((item: any) => (
+                    <View key={item.id} style={styles.dataRow}>
+                      <Text
+                        style={[styles.cellTextLeft, styles.descriptionCol]}
+                      >
+                        {(item.product?.name?.toUpperCase() || "") +
+                          " - " +
+                          (item.variant?.label?.toUpperCase() || "")}
+                      </Text>
+
+                      <Text style={[styles.cellText, styles.qtyCol]}>
+                        {item.quantity}
+                      </Text>
+
+                      <Text style={[styles.cellText, styles.priceCol]}>
+                        {formatMoney(item.price)}
+                      </Text>
+
+                      <Text style={[styles.cellText, styles.totalCol]}>
+                        {formatMoney(item.total)}
+                      </Text>
+                    </View>
+                  ))}
+
+                  <View style={styles.finalRow}>
+                    <Text style={[styles.totalTextLeft, styles.descriptionCol]}>
+                      Total
+                    </Text>
+                    <Text style={[styles.totalText, styles.qtyCol]}>
+                      {totalQty}
+                    </Text>
+                    <Text style={[styles.totalText, styles.priceCol]}></Text>
+                    <Text style={[styles.totalText, styles.totalCol]}>
+                      {formatMoney(selectedOrder.total)}
+                    </Text>
+                  </View>
+                </View>
+              </ViewShot>
+
+              <View style={styles.editPanel}>
+                <View style={styles.editPanelHeader}>
+                  <Text style={styles.editPanelTitle}>Edit Invoice Items</Text>
+
+                  <TouchableOpacity
+                    onPress={openAddModal}
+                    style={styles.addItemBtn}
+                  >
+                    <Ionicons name="add" size={18} color={COLORS.white} />
+                    <Text style={styles.addItemText}>Add Item</Text>
+                  </TouchableOpacity>
                 </View>
 
                 {selectedOrder.items.map((item: any) => (
-                  <View key={item.id} style={styles.dataRow}>
-                    <Text style={[styles.cellTextLeft, styles.descriptionCol]}>
-                      {(item.product?.name?.toUpperCase() || "") +
-                        " - " +
-                        (item.variant?.label?.toUpperCase() || "")}
-                    </Text>
+                  <View key={item.id} style={styles.editItemRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.editItemName}>
+                        {(item.product?.name || "").toUpperCase()}
+                      </Text>
+                      <Text style={styles.editItemSub}>
+                        {item.variant?.label} • Qty {item.quantity} • ₱
+                        {formatMoney(item.price)}
+                      </Text>
+                    </View>
 
-                    <Text style={[styles.cellText, styles.qtyCol]}>
-                      {item.quantity}
-                    </Text>
+                    <TouchableOpacity
+                      onPress={() => openEditItem(item)}
+                      style={styles.editIconButton}
+                    >
+                      <Ionicons
+                        name="create-outline"
+                        size={18}
+                        color={COLORS.white}
+                      />
+                    </TouchableOpacity>
 
-                    <Text style={[styles.cellText, styles.priceCol]}>
-                      {formatMoney(item.price)}
-                    </Text>
-
-                    <Text style={[styles.cellText, styles.totalCol]}>
-                      {formatMoney(item.total)}
-                    </Text>
+                    <TouchableOpacity
+                      onPress={() => deleteItem(item)}
+                      style={styles.deleteIconButton}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color={COLORS.white}
+                      />
+                    </TouchableOpacity>
                   </View>
                 ))}
-
-                <View style={styles.finalRow}>
-                  <Text style={[styles.totalTextLeft, styles.descriptionCol]}>
-                    Total
-                  </Text>
-                  <Text style={[styles.totalText, styles.qtyCol]}>
-                    {totalQty}
-                  </Text>
-                  <Text style={[styles.totalText, styles.priceCol]}></Text>
-                  <Text style={[styles.totalText, styles.totalCol]}>
-                    {formatMoney(selectedOrder.total)}
-                  </Text>
-                </View>
               </View>
-            </ViewShot>
 
-            <View style={styles.editPanel}>
-              <View style={styles.editPanelHeader}>
-                <Text style={styles.editPanelTitle}>Edit Invoice Items</Text>
+              <View style={styles.actions}>
+                <TouchableOpacity
+                  onPress={saveInvoiceImage}
+                  style={styles.actionBtn}
+                >
+                  <Ionicons
+                    name="download-outline"
+                    size={20}
+                    color={COLORS.white}
+                  />
+                  <Text style={styles.actionText}>Save Image</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={openAddModal}
-                  style={styles.addItemBtn}
+                  onPress={shareInvoiceImage}
+                  style={styles.actionBtnGold}
                 >
-                  <Ionicons name="add" size={18} color={COLORS.white} />
-                  <Text style={styles.addItemText}>Add Item</Text>
+                  <Ionicons
+                    name="share-social-outline"
+                    size={20}
+                    color={COLORS.white}
+                  />
+                  <Text style={styles.actionText}>Share</Text>
                 </TouchableOpacity>
               </View>
 
-              {selectedOrder.items.map((item: any) => (
-                <View key={item.id} style={styles.editItemRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.editItemName}>
-                      {(item.product?.name || "").toUpperCase()}
-                    </Text>
-                    <Text style={styles.editItemSub}>
-                      {item.variant?.label} • Qty {item.quantity} • ₱
-                      {formatMoney(item.price)}
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity
-                    onPress={() => openEditItem(item)}
-                    style={styles.editIconButton}
-                  >
-                    <Ionicons
-                      name="create-outline"
-                      size={18}
-                      color={COLORS.white}
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => deleteItem(item)}
-                    style={styles.deleteIconButton}
-                  >
-                    <Ionicons
-                      name="trash-outline"
-                      size={18}
-                      color={COLORS.white}
-                    />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.actions}>
               <TouchableOpacity
-                onPress={saveInvoiceImage}
-                style={styles.actionBtn}
+                onPress={deleteWholeInvoice}
+                style={styles.deleteInvoiceBtn}
               >
-                <Ionicons
-                  name="download-outline"
-                  size={20}
-                  color={COLORS.white}
-                />
-                <Text style={styles.actionText}>Save Image</Text>
+                <Ionicons name="trash-outline" size={20} color={COLORS.white} />
+                <Text style={styles.deleteInvoiceText}>
+                  Delete Whole Invoice
+                </Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={shareInvoiceImage}
-                style={styles.actionBtnGold}
-              >
-                <Ionicons
-                  name="share-social-outline"
-                  size={20}
-                  color={COLORS.white}
-                />
-                <Text style={styles.actionText}>Share</Text>
-              </TouchableOpacity>
+            </>
+          ) : (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>No invoices yet.</Text>
             </View>
+          )}
 
-            <TouchableOpacity
-              onPress={deleteWholeInvoice}
-              style={styles.deleteInvoiceBtn}
-            >
-              <Ionicons name="trash-outline" size={20} color={COLORS.white} />
-              <Text style={styles.deleteInvoiceText}>Delete Whole Invoice</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>No invoices yet.</Text>
-          </View>
-        )}
-
-        <View style={{ height: 120 }} />
-      </ScrollView>
-
+          <View style={{ height: 120 }} />
+        </ScrollView>
+      )}
       <Modal visible={editModalOpen} transparent animationType="slide">
         <KeyboardAvoidingView
           style={styles.modalOverlay}
@@ -1085,5 +1110,29 @@ const styles = StyleSheet.create({
     height: 40,
     borderWidth: 1,
     borderColor: COLORS.brown,
+  },
+  loadingBox: {
+    backgroundColor: COLORS.card,
+    padding: 30,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#ECDDC3",
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.brown,
   },
 });
