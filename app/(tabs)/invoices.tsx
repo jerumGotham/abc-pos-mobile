@@ -84,6 +84,7 @@ export default function Invoices() {
 
       const productRes = await api.get("/products");
       setProducts(productRes.data);
+      await loadOrders();
     } catch (error) {
       console.log("REFRESH ERROR:", error);
       Alert.alert("Error", "Cannot connect to backend.");

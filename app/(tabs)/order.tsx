@@ -353,7 +353,21 @@ export default function OrderScreen() {
         })),
       });
 
-      setSavedOrder(res.data);
+      // Fill in names from the cart in case the API response omits the relations
+      const cartByVariantId = new Map(
+        cartList.map((item: any) => [item.variantId, item]),
+      );
+      setSavedOrder({
+        ...res.data,
+        items: (res.data.items || []).map((item: any) => {
+          const cartItem: any = cartByVariantId.get(item.variantId);
+          return {
+            ...item,
+            productName: item.product?.name || cartItem?.productName,
+            variantLabel: item.variant?.label || cartItem?.variantLabel,
+          };
+        }),
+      });
       setCartModalOpen(false);
       setInvoiceVisible(true);
 
