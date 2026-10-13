@@ -55,7 +55,7 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const invoiceRef = useRef<ViewShot>(null);
+  const invoiceRef = useRef<any>(null);
 
   const loadOrders = async () => {
     try {
