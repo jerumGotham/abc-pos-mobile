@@ -218,26 +218,41 @@ export default function Invoices() {
 
   const saveInvoiceImage = async () => {
     try {
-      if (!invoiceRef.current?.capture) return;
-
-      const uri = await invoiceRef.current.capture();
-      const permission = await MediaLibrary.requestPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow photo library access.");
+      if (!invoiceRef.current?.capture) {
+        Alert.alert("Error", "Unable to capture invoice.");
         return;
       }
 
+      // Write-only permission is enough for saving, and is less intrusive
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission needed",
+          "Please allow photo permission in Settings so invoices can be saved.",
+        );
+        return;
+      }
+
+      const uri = await invoiceRef.current.capture();
+
       await MediaLibrary.saveToLibraryAsync(uri);
       Alert.alert("Saved", "Invoice image saved to your photos.");
-    } catch {
-      Alert.alert("Error", "Failed to save invoice image.");
+    } catch (error: any) {
+      console.log("SAVE IMAGE ERROR:", error);
+      Alert.alert(
+        "Error",
+        `Failed to save invoice image.\n${error?.message || error}`,
+      );
     }
   };
 
   const shareInvoiceImage = async () => {
     try {
-      if (!invoiceRef.current?.capture) return;
+      if (!invoiceRef.current?.capture) {
+        Alert.alert("Error", "Unable to capture invoice.");
+        return;
+      }
 
       const uri = await invoiceRef.current.capture();
 
@@ -247,8 +262,9 @@ export default function Invoices() {
       }
 
       await Sharing.shareAsync(uri);
-    } catch {
-      Alert.alert("Error", "Failed to share invoice.");
+    } catch (error: any) {
+      console.log("SHARE IMAGE ERROR:", error);
+      Alert.alert("Error", `Failed to share invoice.\n${error?.message || error}`);
     }
   };
 

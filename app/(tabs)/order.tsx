@@ -400,31 +400,39 @@ export default function OrderScreen() {
     try {
       setSavingInvoice(true);
 
-      const permission = await MediaLibrary.requestPermissionsAsync();
+      // Write-only permission is enough for saving, and is less intrusive
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
 
       if (!permission.granted) {
-        Alert.alert("Permission required", "Please allow photo permission.");
+        Alert.alert(
+          "Permission required",
+          "Please allow photo permission in Settings so invoices can be saved.",
+        );
         return;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      let savedCount = 0;
+      const uris: string[] = [];
 
       for (const ref of invoiceRefs.current) {
-        if (!ref) continue;
+        if (!ref?.capture) continue;
 
-        const uri = await ref.capture?.();
+        const uri = await ref.capture();
 
-        if (uri) {
-          await MediaLibrary.saveToLibraryAsync(uri);
-          savedCount++;
-        }
+        if (uri) uris.push(uri);
       }
 
-      if (savedCount === 0) {
+      if (uris.length === 0) {
         Alert.alert("Error", "Unable to capture invoice.");
         return;
+      }
+
+      let savedCount = 0;
+
+      for (const uri of uris) {
+        await MediaLibrary.saveToLibraryAsync(uri);
+        savedCount++;
       }
 
       Alert.alert(
@@ -433,9 +441,12 @@ export default function OrderScreen() {
           ? "Invoice image saved to gallery."
           : `${savedCount} invoice images saved to gallery.`,
       );
-    } catch (error) {
+    } catch (error: any) {
       console.log("SAVE IMAGE ERROR:", error);
-      Alert.alert("Error", "Failed to save invoice image.");
+      Alert.alert(
+        "Error",
+        `Failed to save invoice image.\n${error?.message || error}`,
+      );
     } finally {
       setSavingInvoice(false);
     }
