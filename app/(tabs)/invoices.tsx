@@ -33,6 +33,9 @@ const COLORS = {
   red: "#D64545",
 };
 
+const toFileUri = (uri: string) =>
+  uri.startsWith("file://") || uri.startsWith("ph://") ? uri : `file://${uri}`;
+
 export default function Invoices() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -234,7 +237,7 @@ export default function Invoices() {
         return;
       }
 
-      const uri = await invoiceRef.current.capture();
+      const uri = toFileUri(await invoiceRef.current.capture());
 
       await MediaLibrary.saveToLibraryAsync(uri);
       Alert.alert("Saved", "Invoice image saved to your photos.");
@@ -254,7 +257,7 @@ export default function Invoices() {
         return;
       }
 
-      const uri = await invoiceRef.current.capture();
+      const uri = toFileUri(await invoiceRef.current.capture());
 
       if (!(await Sharing.isAvailableAsync())) {
         Alert.alert("Sharing not available");

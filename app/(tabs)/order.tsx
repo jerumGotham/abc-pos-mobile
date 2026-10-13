@@ -34,6 +34,9 @@ const COLORS = {
   danger: "#B3261E",
 };
 
+const toFileUri = (uri: string) =>
+  uri.startsWith("file://") || uri.startsWith("ph://") ? uri : `file://${uri}`;
+
 export default function OrderScreen() {
   const invoiceRefs = useRef<any[]>([]);
 
@@ -420,7 +423,7 @@ export default function OrderScreen() {
 
         const uri = await ref.capture();
 
-        if (uri) uris.push(uri);
+        if (uri) uris.push(toFileUri(uri));
       }
 
       if (uris.length === 0) {
