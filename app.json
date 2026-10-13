@@ -66,7 +66,7 @@
     },
     "owner": "jerum12",
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "sdkVersion"
     },
     "updates": {
       "url": "https://u.expo.dev/034ceef0-56fc-4466-932d-8b7d6314302e"
