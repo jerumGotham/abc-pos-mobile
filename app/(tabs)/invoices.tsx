@@ -22,6 +22,7 @@ import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
+import { APP_VERSION } from "@/constants/app-version";
 
 const COLORS = {
   cream: "#F7EEDC",
@@ -239,13 +240,31 @@ export default function Invoices() {
 
       const uri = toFileUri(await invoiceRef.current.capture());
 
-      await MediaLibrary.saveToLibraryAsync(uri);
-      Alert.alert("Saved", "Invoice image saved to your photos.");
+      try {
+        await MediaLibrary.saveToLibraryAsync(uri);
+        Alert.alert("Saved", "Invoice image saved to your photos.");
+      } catch (saveError: any) {
+        // Saving to the gallery can fail on iOS; the share sheet can still save it
+        console.log("SAVE TO LIBRARY ERROR:", saveError);
+        Alert.alert(
+          "Cannot save to photos",
+          `${saveError?.message || saveError}\n\nShare the image instead?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Share",
+              onPress: async () => {
+                if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri);
+              },
+            },
+          ],
+        );
+      }
     } catch (error: any) {
       console.log("SAVE IMAGE ERROR:", error);
       Alert.alert(
         "Error",
-        `Failed to save invoice image.\n${error?.message || error}`,
+        `Failed to capture invoice.\n${error?.message || error}`,
       );
     }
   };
@@ -279,7 +298,10 @@ export default function Invoices() {
 
   return (
     <View style={styles.screen}>
-      <Text style={styles.title}>Invoices</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>Invoices</Text>
+        <Text style={styles.versionBadge}>{APP_VERSION}</Text>
+      </View>
 
       <ScrollView
         horizontal
@@ -711,11 +733,21 @@ const styles = StyleSheet.create({
     padding: 18,
     paddingTop: 56,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
   title: {
     fontSize: 30,
     fontWeight: "900",
     color: COLORS.brown,
-    marginBottom: 14,
+  },
+  versionBadge: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.gold,
   },
   invoiceList: {
     marginBottom: 16,
